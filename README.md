@@ -10,11 +10,12 @@ Built for AI201 Project 2. Full design spec lives in [`planning.md`](./planning.
 
 ## 🎥 Demo Video
 
-A walkthrough of FitFindr in action — a complete interaction through all three tools,
-state passing between them, and the triggered failure modes with the agent's graceful,
-informative responses:
-
-**▶️ [Watch the demo](https://share.vidyard.com/watch/iai9Y1uJqUWdGLYMoij1pC)**
+- **▶️ [Full walkthrough](https://share.vidyard.com/watch/uoUifnkXRCZZyquUjaDUAy)** —
+  a complete interaction through all three tools, with narration of each step and the
+  state passing between them.
+- **▶️ [Failure-handling demo](https://share.vidyard.com/watch/iai9Y1uJqUWdGLYMoij1pC)** —
+  the three failure modes triggered deliberately, showing the agent's graceful,
+  informative responses.
 
 ## Setup
 
