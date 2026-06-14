@@ -1,0 +1,30 @@
+
+======================================================================
+FAILURE MODE 1: search_listings returns zero results
+======================================================================
+search_listings('designer ballgown', size='XXS', max_price=5) -> []
+PASS  returned [] with no exception
+
+-- full agent on the same impossible query --
+session['error']   : No listings matched 'designer ballgown' under $5 in size XXS. Try raising your price limit, or dropping the size filter, or trying different keywords.
+session['fit_card']: None
+session['outfit']  : None
+PASS  agent gives an actionable message; LLM tools never run
+
+======================================================================
+FAILURE MODE 2: suggest_outfit with an EMPTY wardrobe
+======================================================================
+This Y2K baby tee pairs well with high-waisted jeans, flowy skirts, or distressed denim shorts for a casual, nostalgic look. It suits a cottagecore or vintage aesthetic, and can be layered under cardigans or denim jackets for a cozy touch. For a more modern take, try pairing it with modern staples like black trousers or a flowy maxi skirt. A pair of chunky sneakers or sandals can complete the outfit and add to its laid-back vibe.
+
+PASS  returned general styling advice (non-empty string), no exception
+
+======================================================================
+FAILURE MODE 3: create_fit_card with an EMPTY outfit string
+======================================================================
+Couldn't write a fit card ΓÇö no outfit was provided to caption.
+
+PASS  returned a descriptive error string, not an exception
+
+======================================================================
+ALL THREE FAILURE MODES TRIGGERED ΓÇö AGENT RECOVERED GRACEFULLY
+======================================================================

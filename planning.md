@@ -264,43 +264,28 @@ For each tool, describe the specific failure mode you're handling and what the a
 
 ## Architecture
 
-```
-User query  +  wardrobe choice (Example / Empty)
-    │
-    ▼
-Parse query ──► session["parsed"] = {description, size, max_price}
-    │
-    ▼
-Planning Loop ───────────────────────────────────────────────────────┐
-    │                                                                 │
-    ├─► search_listings(description, size, max_price)                 │
-    │        │                                                        │
-    │        │ results == []                                          │
-    │        ├──► session["error"] = "No listings found… try …"       │
-    │        │     return session  ──► fit_card stays None  [ERROR ✗] │
-    │        │                                                        │
-    │        │ results == [item, …]                                   │
-    │        ▼                                                        │
-    │   session["selected_item"] = results[0]   ◄─── same dict ───┐   │
-    │        │                                                    │   │
-    ├─► suggest_outfit(selected_item, wardrobe)                   │   │
-    │        │   (branches internally: empty wardrobe → general   │   │
-    │        │    advice; else → outfit naming wardrobe pieces)   │   │
-    │        ▼                                                    │   │
-    │   session["outfit_suggestion"] = "…"                        │   │
-    │        │                                                    │   │
-    └─► create_fit_card(outfit_suggestion, selected_item) ────────┘   │
-             │   (guards empty outfit → error string)                 │
-             ▼                                                        │
-        session["fit_card"] = "…"                                     │
-             │                                  error path returns ───┘
-             ▼
-        Return session  ──►  app.py maps {listing, outfit, fit_card} to 3 panels
-                              (or shows session["error"] in panel 1)
+```mermaid
+---
+config:
+  theme: neutral
+  themeVariables:
+    fontFamily: "'Recursive Variable', sans-serif"
+---
+flowchart LR
+    U["User Query"] --> P["Planning Loop"]
+    P --> S["search_listings(query, size, max_price)"] & O["suggest_outfit(selected_item, wardrobe)"] & F["create_fit_card(outfit_suggestion, selected_item)"]
+    S -- "results = []" --> E["No listings found"]
+    E --> RET1["Return Error"]
+    S -- "results found" --> SS[("Session State")]
+    SS -- "selected_item" --> P
+    O -- "outfit generated" --> SS
+    O -- "error" --> RET2["Return Error"]
+    SS -- "outfit_suggestion" --> P
+    F -- "caption generated" --> SS
+    F -- "error" --> RET3["Return Error"]
+    SS --> FINAL["Final Response:<br/>selected_item<br/>outfit_suggestion<br/>fit_card"]
 
-         ▲                                                    │
-         └──────── session dict = shared state whiteboard ────┘
-                   (every tool writes to it / reads from it)
+    classDef input fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a;
 ```
 
 ---
@@ -344,44 +329,12 @@ doesn't just call all three tools in a fixed order before we keep it.
 
 Write out what a full user interaction looks like from start to finish — tool call by tool call. Use a specific example query.
 
-**What FitFindr does (overview):**
-FitFindr takes a natural-language thrifting request, parses it into a description,
-size, and max price, and runs three tools in sequence. `search_listings` finds
-matching secondhand items; the top match flows into `suggest_outfit`, which styles
-it against the user's existing wardrobe; that outfit flows into `create_fit_card`,
-which writes a short, shareable caption. If `search_listings` returns nothing, the
-agent stops and tells the user what to try differently — it never calls the later
-tools with empty input.
+**User:** "I'm looking for a vintage graphic tee under $30, size M. I mostly wear baggy jeans and chunky sneakers."
 
-**Example user query:** "I'm looking for a vintage graphic tee under $30. I mostly wear baggy jeans and chunky sneakers. What's out there and how would I style it?"
+1. FitFindr calls `search_listings("vintage graphic tee", size="M", max_price=30.0)` and retrieves matching listings sorted by relevance. The top result is selected: "Faded Band Tee — $22, Depop, Good condition."
 
-**Step 0 — Parse:** the query is parsed into
-`{description: "vintage graphic tee", size: None, max_price: 30.0}` and stored in
-`session["parsed"]`. (No size is mentioned, so `size` stays `None` = don't filter
-on size.)
+2. FitFindr passes the selected item into `suggest_outfit(new_item=<band tee>, wardrobe=<user_wardrobe>)`, which returns styling guidance such as pairing it with baggy jeans and chunky sneakers for a 90s-inspired look.
 
-**Step 1 — Search:** `search_listings("vintage graphic tee", size=None,
-max_price=30.0)` is called. It filters by price, scores by keyword overlap, and
-returns matches ranked best-first. Several items tie at the top (score 3); with a
-stable sort, `results[0]` is the first such item in the dataset —
-**"Y2K Baby Tee — Butterfly Print" — $18, depop, size S/M.** It's stored in
-`session["selected_item"]`. *(Tie-break note: ties currently resolve by dataset
-order; a secondary sort, e.g. price, could be added later.)*
+3. FitFindr then calls `create_fit_card(outfit=<suggestion>, new_item=<band tee>)` to generate a shareable caption like: "thrifted this faded band tee off depop for $22 and it was made for my baggy jeans 🖤"
 
-**Step 2 — Suggest outfit:** `suggest_outfit(selected_item=<Y2K baby tee>,
-wardrobe=<example wardrobe>)` is called. The wardrobe is non-empty, so the LLM is
-asked to build outfits naming real pieces — e.g. *"Tuck it into your baggy
-straight-leg jeans and finish with chunky sneakers for a Y2K street look."* The
-string is stored in `session["outfit_suggestion"]`.
-
-**Step 3 — Fit card:** `create_fit_card(outfit=<that suggestion>,
-new_item=<Y2K baby tee>)` is called. It writes a casual caption mentioning the
-item, price, and platform — e.g. *"found this y2k butterfly baby tee on depop for
-$18 and it's already my fav 🦋 styled it with my baggy jeans + chunky sneakers,
-full fit in stories."* Stored in `session["fit_card"]`.
-
-**Final output to user:** `app.py` maps the session to the three panels —
-🛍️ the listing (Y2K Baby Tee, $18, depop), 👗 the outfit idea, and ✨ the fit
-card caption. If instead the search had returned `[]` (e.g. the ballgown query),
-the user would see only `session["error"]` in panel 1 and the other two panels
-empty.
+If `search_listings` returns no results, the process stops immediately and no further tools are called. The user is prompted to adjust their filters or try a different search.

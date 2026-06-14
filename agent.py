@@ -54,7 +54,9 @@ def _parse_query(query: str) -> dict:
     size = None
     sm = re.search(r"size\s+([A-Za-z0-9.]+)", text, re.I)
     if sm:
-        size = sm.group(1).upper()
+        # Strip trailing punctuation ("size M." -> "M") while preserving
+        # decimal sizes like "8.5" (strip only removes leading/trailing chars).
+        size = sm.group(1).strip(" .,").upper()
 
     # description: the query with size/price phrases stripped, then filler words
     # removed. Filler matters here because search does substring matching —
@@ -66,7 +68,7 @@ def _parse_query(query: str) -> dict:
     description = re.sub(r"\$\s*\d+(?:\.\d+)?", "", description)
 
     _STOPWORDS = {
-        "looking", "for", "a", "an", "the", "in", "on", "im", "i", "want",
+        "looking", "for", "a", "an", "the", "in", "on", "im", "i'm", "i", "want",
         "wanna", "need", "find", "me", "my", "some", "of", "to", "with",
         "that", "what", "out", "there", "and", "how", "would", "style", "it",
         "is", "are", "something",

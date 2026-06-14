@@ -8,6 +8,14 @@ no wardrobe, missing data) gracefully along the way.
 
 Built for AI201 Project 2. Full design spec lives in [`planning.md`](./planning.md).
 
+## 🎥 Demo Video
+
+A walkthrough of FitFindr in action — a complete interaction through all three tools,
+state passing between them, and the triggered failure modes with the agent's graceful,
+informative responses:
+
+**▶️ [Watch the demo](https://share.vidyard.com/watch/iai9Y1uJqUWdGLYMoij1pC)**
+
 ## Setup
 
 ```bash
@@ -47,16 +55,21 @@ All three tools live in [`tools.py`](./tools.py). Signatures here match the code
 - **Purpose:** find candidate items. Filters by price and size, then ranks what's left
   by how many description keywords appear in each listing's title + description + tags.
 
-### 2. `suggest_outfit(new_item: dict, wardrobe: dict) -> str`
+### 2. `suggest_outfit(new_item: dict, wardrobe: dict, style_profile: dict | None = None, trends: list | None = None) -> str`
 
 - **Inputs:**
   - `new_item` (dict): a listing dict (the selected item from search).
   - `wardrobe` (dict): a wardrobe with an `"items"` list (each: `id, name, category,
     colors, style_tags, notes`); may be empty.
+  - `style_profile` (dict | None) *(stretch)*: remembered preferences, e.g.
+    `{"preferred_styles": ["y2k", "streetwear"]}`; `None` skips preference biasing.
+  - `trends` (list | None) *(stretch)*: currently-trending style tags to lean the
+    outfit toward; `None` skips trend biasing.
 - **Returns:** a non-empty `str` with 1–2 outfit ideas. With a real wardrobe it names
   specific owned pieces; with an empty wardrobe it gives general styling advice.
 - **Purpose:** turn a raw item into wearable outfit suggestions grounded in what the
-  user already owns. Calls Groq `llama-3.3-70b-versatile`.
+  user already owns (and, via the optional stretch args, their saved style profile and
+  current trends). Calls Groq `llama-3.3-70b-versatile`.
 
 ### 3. `create_fit_card(outfit: str, new_item: dict) -> str`
 
@@ -137,6 +150,50 @@ passed into *both* `suggest_outfit` and `create_fit_card` — verifiable by prin
 All four are covered by `tests/test_tools.py` (12 tests, run offline by mocking the
 Groq client).
 
+### Triggered Failure Tests (Milestone 5)
+
+Beyond the unit tests, I *deliberately* triggered each failure mode end-to-end to prove
+the agent recovers gracefully — a real exception in any of these would crash the app.
+These triggered failures are shown live in the
+[demo video](https://share.vidyard.com/watch/iai9Y1uJqUWdGLYMoij1pC).
+`milestone5_failure_demo.py` reproduces all three; run it with:
+
+```powershell
+.\.venv\Scripts\python.exe milestone5_failure_demo.py
+```
+
+**The demo script** ([`milestone5_failure_demo.py`](./milestone5_failure_demo.py)) imports
+the three tools plus the full `run_agent` loop, then forces each failure in turn:
+
+![milestone5_failure_demo.py source](assets/mile_5_Failures_1.png)
+
+**The captured output** ([`milestone5_failures.txt`](./milestone5_failures.txt)) shows each
+failure producing a specific, informative response instead of a traceback:
+
+![milestone5_failures.txt output](assets/mile_5_Failures_2.png)
+
+What each triggered "error" actually is — and why it is *handled*, not a crash:
+
+1. **`search_listings` returns zero results** (`search_listings('designer ballgown',
+   size='XXS', max_price=5)`). There is no such item, so the function returns an empty
+   list `[]` — **not** an exception. The full agent then hits its decision point, sees the
+   empty list, sets `session['error']` to an *actionable* message ("...Try raising your
+   price limit, or dropping the size filter, or trying different keywords.") and **returns
+   early**. The output confirms `fit_card` and `outfit` stay `None` — proof the LLM tools
+   are never called on a dead-end query (no wasted API calls, no crash).
+2. **`suggest_outfit` with an empty wardrobe** (`suggest_outfit(item, get_empty_wardrobe())`).
+   With no owned pieces to name, a naive implementation would crash or return `""`. Instead
+   the tool detects the empty `wardrobe['items']` and switches to a *general styling advice*
+   prompt, returning the non-empty paragraph shown in the output.
+3. **`create_fit_card` with an empty outfit string** (`create_fit_card('', item)`). The tool
+   guards an empty/whitespace `outfit` up front and returns the descriptive string
+   *"Couldn't write a fit card — no outfit was provided to caption."* — short-circuiting
+   before any LLM call rather than raising.
+
+Each block ends in a `PASS` line; the run finishes with
+`ALL THREE FAILURE MODES TRIGGERED — AGENT RECOVERED GRACEFULLY`. So these are not bugs in
+the app — they are the failure paths firing exactly as designed.
+
 ## Spec Reflection
 
 - **One way the spec helped:** writing every tool's inputs/return/failure mode in
@@ -148,6 +205,16 @@ Groq client).
   matched *inside* words like "v**in**tage" and "denim", polluting the ranking. I added
   stopword stripping to the query parser — a step that wasn't in the original spec — to
   fix it.
+- **A second divergence, caught by testing the exact walkthrough query:** running my own
+  planning.md example — *"I'm looking for a vintage graphic tee under $30, size M."* —
+  exposed two parser bugs the spec never anticipated. The size regex `[A-Za-z0-9.]+`
+  greedily captured the trailing period (`"size M."` → `"M."`), so the size filter
+  matched *nothing*, wiped out every tee, and ranked a leather belt first. And the
+  contraction `"i'm"` leaked into the search description as noise. I fixed the parser to
+  strip trailing punctuation from the size (while preserving decimal sizes like `8.5`)
+  and added `"i'm"` to the stopword set. Lesson: a clean unit test (`"...under $30"`)
+  passed, but the *real* user phrasing — punctuation and contractions and all — is what
+  broke it.
 
 ## Stretch Features
 
@@ -184,3 +251,11 @@ I worked with Claude (in Claude Code) as a pair-programming and brainstorming pa
    state-management spec. I chose regex over an LLM for query parsing. While testing I
    noticed filler words were skewing the search ranking, and I directed the fix (strip
    stopwords during parsing) rather than accepting the first version.
+3. **Verifying state flow under the real walkthrough query.** I had Claude build a
+   throwaway harness that wrapped all three tools in spies and asserted, by object
+   *identity* (`is`, not `==`), that the same `selected_item` dict and the same
+   `outfit_suggestion` string flowed between tools with no re-entry. Running it against
+   my planning.md example query surfaced the size-parse bug above (the agent selected a
+   belt instead of a tee). I directed the parser fix, re-ran the harness until every
+   identity assertion passed, then confirmed the existing 23-test suite still passed —
+   rather than trusting that the loop "looked right."
